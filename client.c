@@ -32,56 +32,66 @@ int main(int argc, char **argv) {
 		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
 		return 1;
 	}else{
-		printf("connection ok\n");
-		char str[100];
-		//int n = read(sockfd, str, 100);
-		//printf("%s", str);
+		printf("connect to server successfully\n");
 	}
-	printf("1\n");
-	fgets(sentence, 4096, stdin);
-	len = strlen(sentence);
-	sentence[len-1] = '\0';
-	send(sockfd, sentence, len-1, 0);
-	recv(sockfd, sentence, sizeof(sentence), 0);
-	printf("%s\n", sentence);
-	//int w = write(sockfd, sentence, len-1);
-	//int r = read(sockfd, sentence, 100);
-	//printf("%s\n", sentence);
+
 	//Log In
-	/*while(1){
-		char match[100] =  "ERROR: user name wrong.";
+	while(1){
 		fgets(sentence, 4096, stdin);
 		len = strlen(sentence);
 		sentence[len-1] = '\0';
-		int w = write(sockfd, sentence, len-1);
-		int r = read(sockfd, sentence, 100);
+		send(sockfd, sentence, len-1, 0);
+		sentence[0]='\0';
+		recv(sockfd, sentence, sizeof(sentence), 0);
+		char pass[20] = "\0";
+		strncpy(pass, sentence, 3);
 		printf("%s\n", sentence);
-		if (strcmp(sentence, match) == 0){
-			continue;
+		sentence[0]='\0';
+		if (strcmp(pass, "331") == 0){
+			break;
 		}
-		break;
 	}
+	sentence[0]='\0';
 	
 	//PASS word
 	while(1){
-		char match[100] =  "you should input valid password";
 		fgets(sentence, 4096, stdin);
 		len = strlen(sentence);
 		sentence[len-1] = '\0';
-		int w = write(sockfd, sentence, len-1);
-		int r = read(sockfd, sentence, 100);
+		send(sockfd, sentence, len-1, 0);
+		sentence[0]='\0';
+		recv(sockfd, sentence, sizeof(sentence), 0);
+		char pass[20] = "\0";
+		strncpy(pass, sentence, 3);
 		printf("%s\n", sentence);
-		if (strcmp(sentence, match) == 0){
-			continue;
+		sentence[0]='\0';
+		if (strcmp(pass, "230") == 0){
+			break;
 		}
-		break;
-	}*/
+	}
+	
+	//Other request
+	while(1){
+		fgets(sentence, 4096, stdin);
+		len = strlen(sentence);
+		sentence[len-1] = '\0';
+		send(sockfd, sentence, len-1, 0);
+		sentence[0]='\0';
+		recv(sockfd, sentence, sizeof(sentence), 0);
+		char pass[20] = "\0";
+		strncpy(pass, sentence, 3);
+		printf("%s\n", sentence);
+		sentence[0]='\0';
+		if (strcmp(pass, "221") == 0){ //QUIT
+			break;
+		}
+	}
 
-
-	//printf("FROM SERVER: %s", sentence);
+	/*send(sockfd, "hha", 10, 0);
+	recv(sockfd, sentence, sizeof(sentence), 0);
+	printf("FROM SERVER: %s", sentence);*/
 
 	close(sockfd);
-	printf("2\n");
 
 	return 0;
 }
