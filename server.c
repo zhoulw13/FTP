@@ -30,7 +30,7 @@ int getAddrPort(char *buf, char *addr);
 char *get_ip();
 int serverAddrPort(char *addr, char *sentence);
 int serverSocketInit(int port);
-int clientSocketInit(int port, char *addr);
+int clientSocketInit(int port, const char *addr);
 
 int main(int argc, char **argv) {
 	int listenfd, connfd;
@@ -157,6 +157,10 @@ void handleClientRequest(int clientfd, char *sentence){
 		}
 		return;
 	}else if(strcmp(pass, "RETR") == 0){
+		if(clientState[clientfd] != 3 && clientState[clientfd] !=4){
+			send(clientfd, "425 no TCP connection established\r\n", 100, 0);
+			return;
+		}
 		char filename[100];
 		strcpy(filename, sentence+5);
 		if (clientState[clientfd] == 3){
@@ -165,15 +169,22 @@ void handleClientRequest(int clientfd, char *sentence){
 				send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
 				return;
 			}
-			FILE *pf = fopen(filename, "r");
-			if (pf == NULL){
+			FILE *fp = fopen(filename, "r");
+			if (fp == NULL){
 				send(clientfd, "451 can't open assigned file\r\n", 100, 0);
 				return;
 			}
+			char buf[1000], text[8192] = "\0";
+			while (!feof(fp)){
+	            if(fgets(buf,100,fp)!=NULL)
+    		        strcat(text, buf);
+    	    }
+    	    fclose(fp);
+    	    send(clientfd, "226 text file loaded\r\n", 100, 0);
+    	    while(1)
+	    	    send(fileSocket[clientfd], text, strlen(text), 0);
 		}else if(clientState[clientfd] == 4){
 			
-		}else{
-			send(clientfd, "425 no TCP connection established\r\n", 100, 0);
 		}
 		return;
 	}else if(strcmp(pass, "STOR") == 0){
@@ -314,7 +325,7 @@ int serverSocketInit(int port){
 	return listenfd;
 }
 
-int clientSocketInit(int port, char *ip){
+int clientSocketInit(int port, const char *ip){
 	int sockfd;
 	struct sockaddr_in addr;
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
@@ -325,7 +336,7 @@ int clientSocketInit(int port, char *ip){
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_port = port;
-	if (inet_pton(AF_INET, ip, &addr.sin_addr) <= 0) {
+	if (inet_pton(AF_INET, ip, &addr.sin_addr) < 0) {
 		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}

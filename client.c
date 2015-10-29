@@ -10,7 +10,7 @@
 
 int getAddrPort(char *sentence, char *addr);
 int serverSocketInit(int port);
-int clientSocketInit(int port, char *addr);
+int clientSocketInit(int port, const char *addr);
 
 int main(int argc, char **argv) {
 	int sockfd;
@@ -91,8 +91,16 @@ int main(int argc, char **argv) {
 				}
 			}
 		}else if(strcmp(pass, "RETR") == 0){
-			if (state == 4){
-				filefd = clientSocketInit(filePort, fileAddr);
+			if (strcmp(mask, "226") == 0){
+				int tmp = accept(filefd, NULL, NULL);
+				char text[8192]="\0";
+				while(1)
+					recv(tmp, text, sizeof(text), 0);
+				char path[] = "test/";
+				strcat(path, sendMsg+5);
+				FILE *fp = fopen(path,"w+");
+				fprintf(fp, "%s", text);
+				fclose(fp);
 			}
 		}else{
 			
@@ -103,6 +111,9 @@ int main(int argc, char **argv) {
 	}
 
 	close(sockfd);
+	if(filefd != 0){
+		close(filefd);
+	}
 
 	return 0;
 }
@@ -127,7 +138,7 @@ int getAddrPort(char *sentence, char *addr){
 	return atoi(port[0]) + 256*atoi(port[1]);
 }
 
-int clientSocketInit(int port, char *ip){
+int clientSocketInit(int port, const char *ip){
 	int sockfd;
 	struct sockaddr_in addr;
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
@@ -138,7 +149,7 @@ int clientSocketInit(int port, char *ip){
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_port = port;
-	if (inet_pton(AF_INET, ip, &addr.sin_addr) <= 0) {
+	if (inet_pton(AF_INET, ip, &addr.sin_addr) < 0) {
 		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
