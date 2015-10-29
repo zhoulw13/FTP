@@ -76,20 +76,20 @@ int main(int argc, char **argv) {
 		len = strlen(sentence);
 		sentence[len-1] = '\0';
 		send(sockfd, sentence, len-1, 0);
+		char pass[20] = "\0";
+		strncpy(pass, sentence, 4);
 		sentence[0]='\0';
 		recv(sockfd, sentence, sizeof(sentence), 0);
-		char pass[20] = "\0";
-		strncpy(pass, sentence, 3);
 		printf("%s\n", sentence);
+		if (strcmp(pass, "QUIT") == 0){
+			pass[0] = '\0';
+			strncpy(pass, sentence, 3);	
+			if (strcmp(pass, "221") == 0){ //QUIT
+				break;
+			}
+		}			
 		sentence[0]='\0';
-		if (strcmp(pass, "221") == 0){ //QUIT
-			break;
-		}
 	}
-
-	/*send(sockfd, "hha", 10, 0);
-	recv(sockfd, sentence, sizeof(sentence), 0);
-	printf("FROM SERVER: %s", sentence);*/
 
 	close(sockfd);
 

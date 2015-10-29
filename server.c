@@ -1,7 +1,11 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/types.h>
+#include <sys/ioctl.h> 
 #include <netinet/in.h>
+#include <netdb.h>  
+#include <net/if.h>  
+#include <arpa/inet.h> 
 
 #include <unistd.h>
 #include <errno.h>
@@ -17,6 +21,8 @@ char clientAddr[100][50];
 int clientPort[100]={0};
 void handleClientRequest(int client, char *buf);
 int getAddrPort(char *buf, char *addr);
+char *get_ip();
+void serverAddrPort(char *addr, char *sentence);
 
 int main(int argc, char **argv) {
 	int listenfd, connfd;
@@ -160,8 +166,16 @@ void handleClientRequest(int clientfd, char *sentence){
 		send(clientfd, "221 Good bye\r\n", 100, 0);
 	}else if(strcmp(pass, "PORT") == 0){
 		clientPort[clientfd] = getAddrPort(sentence, clientAddr[clientfd]);
+		//printf("%s %d\n", clientAddr[clientfd], clientPort[clientfd]);
+		send(clientfd, "200 port received\r\n", 100, 0);
+		clientState[clientfd] = 3;
 	}else if(strcmp(pass, "PASV") == 0){
-		
+		sentence[0] = '\0';
+		serverAddrPort(get_ip(), sentence);
+		strcat(sentence, "\r\n");
+		char temp[10000] = "227 ";
+		strcat(temp, sentence);
+		send(clientfd, temp, strlen(temp), 0);
 	}else if(strcmp(pass, "RETR") == 0){
 		
 	}else if(strcmp(pass, "STOR") == 0){
@@ -191,3 +205,94 @@ int getAddrPort(char *sentence, char *addr){
 	return atoi(port[0]) + 256*atoi(port[1]);
 }
 
+char *get_ip()  
+{  
+    int fd, num;  
+    struct ifreq ifq[16];  
+    struct ifconf ifc;  
+    int i;  
+    char *ips, *tmp_ip;  
+    char *delim = ",";  
+    int val;  
+      
+    fd = socket(AF_INET, SOCK_DGRAM, 0);  
+    if(fd < 0)  
+    {  
+        fprintf(stderr, "socket failed\n");  
+        return NULL;  
+    }  
+    ifc.ifc_len = sizeof(ifq);  
+    ifc.ifc_buf = (caddr_t)ifq;  
+    if(ioctl(fd, SIOCGIFCONF, (char *)&ifc))  
+    {  
+        fprintf(stderr, "ioctl failed\n");  
+        return NULL;  
+    }  
+    num = ifc.ifc_len / sizeof(struct ifreq);  
+    if(ioctl(fd, SIOCGIFADDR, (char *)&ifq[num-1]))  
+    {  
+        fprintf(stderr, "ioctl failed\n");  
+        return NULL;  
+    }  
+    close(fd);  
+      
+    val = 0;  
+    for(i=0; i<num; i++)  
+    {  
+        tmp_ip = inet_ntoa(((struct sockaddr_in*)(&ifq[i].ifr_addr))-> sin_addr);  
+        if(strcmp(tmp_ip, "127.0.0.1") != 0)  
+        {  
+            val++;  
+        }  
+    }  
+      
+    ips = (char *)malloc(val * 16 * sizeof(char));  
+    if(ips == NULL)  
+    {  
+        fprintf(stderr, "malloc failed\n");  
+        return NULL;  
+    }  
+    memset(ips, 0, val * 16 * sizeof(char));  
+    val = 0;  
+    for(i=0; i<num; i++)  
+    {  
+        tmp_ip = inet_ntoa(((struct sockaddr_in*)(&ifq[i].ifr_addr))-> sin_addr);  
+        if(strcmp(tmp_ip, "127.0.0.1") != 0)  
+        {  
+            if(val > 0)  
+            {  
+                strcat(ips, delim);  
+            }  
+            strcat(ips, tmp_ip);  
+            val ++;  
+        }  
+    }  
+      
+    return ips;  
+}
+
+void serverAddrPort(char *addr, char *sentence){
+	srand(time(NULL));
+	int port = rand() % (65535 - 1 + 20000) + 20000;
+	int i, j;
+	char str[100];
+	strcpy(sentence, addr);
+	int len = strlen(sentence);
+	sentence[len] = ',';
+	sentence[len+1] = '\0';
+	len = strlen(sentence);
+	sprintf(str, "%d", port/256);
+	strcpy(sentence+len, str);
+	len = strlen(sentence);
+	sentence[len] = ',';
+	sentence[len+1] = '\0';
+	len = strlen(sentence);
+	sprintf(str, "%d", port%256);
+	strcpy(sentence+len, str);
+	for (i = 0; i < len; i++){
+		if(sentence[i] == '.')
+			sentence[i] = ',';
+	}
+	
+	return;
+}
