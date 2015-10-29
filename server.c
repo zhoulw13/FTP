@@ -16,45 +16,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+//client state: 
+//0:user name needed, 1:password needed, 2:user has login
+//3:port assigned, 4:passive mode
+//5:data trasmiting
 int clientState[100] = {0};
+
 char clientAddr[100][50];
 int clientPort[100]={0};
+int fileSocket[100]={0};
 void handleClientRequest(int client, char *buf);
 int getAddrPort(char *buf, char *addr);
 char *get_ip();
-void serverAddrPort(char *addr, char *sentence);
+int serverAddrPort(char *addr, char *sentence);
+int serverSocketInit(int port);
+int clientSocketInit(int port, char *addr);
 
 int main(int argc, char **argv) {
 	int listenfd, connfd;
-	struct sockaddr_in addr, clientaddr;
+	struct sockaddr_in clientaddr;
 	int addrlen;
 	int nbytes;
 	int i, j;
 	int fdmax;
 	char pattern[10][10] = {"USER", "PASS", "PORT", "PASV", "RETR", "STOR", "SYST", "TYPE", "QUIT", "ABOR"};
-
-	if ((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
-		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
-		return 1;
+	
+	listenfd = serverSocketInit(6789);
+	if (listenfd == -1){
+		return -1;
 	}
-	printf("SERVER socket() OK\n");
-
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = 6789;
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		printf("Error bind(): %s(%d)\n", strerror(errno), errno);
-		return 1;
-	}
-	printf("SERVER bind() OK\n");
-
-	if (listen(listenfd, 10) == -1) {
-		printf("Error listen(): %s(%d)\n", strerror(errno), errno);
-		return 1;
-	}
-	printf("SERVER listen() OK\n");
 	
 	fd_set fds, read_fds;
 	FD_ZERO(&fds);
@@ -94,31 +84,10 @@ int main(int argc, char **argv) {
 						clientAddr[i][0] = '\0';
 						FD_CLR(i, &fds);
 					}else{
-						
-						//send(i, "received", 100, 0);
-						handleClientRequest(i, sentence);
-					}
-					//int w = write(i, sentence, 100);
-					//send(i, "hah", nbytes, 0);
-					/*if (nbytes = recv(i, sentence, sizeof(sentence), 0) <= 0){
-						if (nbytes == 0)
-							printf("socket hang up\n");
-						else
-							printf("Error recv(): %s(%d)\n", strerror(errno), errno);
-						printf("SERVER receive()\n");
-						close(i);
-						// remove connection i
-						FD_CLR(i, &fds);
-					}else{
-						for (j = 0; j <= fdmax; j++){
-							if (FD_ISSET(j, &fds)){
-								if (j != listenfd && j != i){
-									if (send(j, sentence, nbytes, 0) == -1)
-										printf("Error send(): %s(%d)\n", strerror(errno), errno);
-								}
-							}
+						if(clientState[i] != 5){ //ignore command when data transmiting
+							handleClientRequest(i, sentence);
 						}
-					}*/
+					}
 				}
 			}
 		}	
@@ -162,26 +131,55 @@ void handleClientRequest(int clientfd, char *sentence){
 	}else if(strcmp(pass, "TYPE") == 0 && strcmp(sentence, "TYPE I") == 0){
 		send(clientfd, "200 Type set to I.\r\n", 100, 0);
 		return;
-	}else if(strcmp(pass, "QUIT") == 0){
+	}else if(strcmp(pass, "QUIT") == 0 || strcmp(pass, "ABOR") == 0){
 		send(clientfd, "221 Good bye\r\n", 100, 0);
+		return;
 	}else if(strcmp(pass, "PORT") == 0){
 		clientPort[clientfd] = getAddrPort(sentence, clientAddr[clientfd]);
-		//printf("%s %d\n", clientAddr[clientfd], clientPort[clientfd]);
 		send(clientfd, "200 port received\r\n", 100, 0);
 		clientState[clientfd] = 3;
+		return;
 	}else if(strcmp(pass, "PASV") == 0){
-		sentence[0] = '\0';
-		serverAddrPort(get_ip(), sentence);
-		strcat(sentence, "\r\n");
-		char temp[10000] = "227 ";
-		strcat(temp, sentence);
-		send(clientfd, temp, strlen(temp), 0);
+		memset(sentence, 0, sizeof(sentence));
+		int port = serverAddrPort(get_ip(), sentence);
+		if (fileSocket[clientfd] != 0){ // close the old connection
+			close(fileSocket[clientfd]);
+		}
+		fileSocket[clientfd] = serverSocketInit(port); //create a new port and listen to it
+		if (fileSocket[clientfd] == -1){ //PASV error
+			send(clientfd, "400 PASV error\r\n", 100, 0);
+		}else{
+			strcat(sentence, "\r\n");
+			char temp[10000] = "227 ";
+			strcat(temp, sentence);
+			clientState[clientfd] = 4;
+			send(clientfd, temp, strlen(temp), 0);
+		}
+		return;
 	}else if(strcmp(pass, "RETR") == 0){
-		
+		char filename[100];
+		strcpy(filename, sentence+5);
+		if (clientState[clientfd] == 3){
+			fileSocket[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
+			if (fileSocket[clientfd] == -1){
+				send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
+				return;
+			}
+			FILE *pf = fopen(filename, "r");
+			if (pf == NULL){
+				send(clientfd, "451 can't open assigned file\r\n", 100, 0);
+				return;
+			}
+		}else if(clientState[clientfd] == 4){
+			
+		}else{
+			send(clientfd, "425 no TCP connection established\r\n", 100, 0);
+		}
+		return;
 	}else if(strcmp(pass, "STOR") == 0){
-		
+		return;
 	}
-	send(clientfd, "received", 100, 0);
+	send(clientfd, "500 REQUEST not found\r\n", 100, 0);
 	return;
 }
 
@@ -216,51 +214,42 @@ char *get_ip()
     int val;  
       
     fd = socket(AF_INET, SOCK_DGRAM, 0);  
-    if(fd < 0)  
-    {  
+    if(fd < 0){  
         fprintf(stderr, "socket failed\n");  
         return NULL;  
     }  
     ifc.ifc_len = sizeof(ifq);  
     ifc.ifc_buf = (caddr_t)ifq;  
-    if(ioctl(fd, SIOCGIFCONF, (char *)&ifc))  
-    {  
+    if(ioctl(fd, SIOCGIFCONF, (char *)&ifc)){  
         fprintf(stderr, "ioctl failed\n");  
         return NULL;  
     }  
     num = ifc.ifc_len / sizeof(struct ifreq);  
-    if(ioctl(fd, SIOCGIFADDR, (char *)&ifq[num-1]))  
-    {  
+    if(ioctl(fd, SIOCGIFADDR, (char *)&ifq[num-1])){  
         fprintf(stderr, "ioctl failed\n");  
         return NULL;  
     }  
     close(fd);  
       
     val = 0;  
-    for(i=0; i<num; i++)  
-    {  
+    for(i=0; i<num; i++){  
         tmp_ip = inet_ntoa(((struct sockaddr_in*)(&ifq[i].ifr_addr))-> sin_addr);  
-        if(strcmp(tmp_ip, "127.0.0.1") != 0)  
-        {  
+        if(strcmp(tmp_ip, "127.0.0.1") != 0){  
             val++;  
         }  
     }  
       
     ips = (char *)malloc(val * 16 * sizeof(char));  
-    if(ips == NULL)  
-    {  
+    if(ips == NULL){  
         fprintf(stderr, "malloc failed\n");  
         return NULL;  
     }  
     memset(ips, 0, val * 16 * sizeof(char));  
     val = 0;  
-    for(i=0; i<num; i++)  
-    {  
+    for(i=0; i<num; i++){  
         tmp_ip = inet_ntoa(((struct sockaddr_in*)(&ifq[i].ifr_addr))-> sin_addr);  
-        if(strcmp(tmp_ip, "127.0.0.1") != 0)  
-        {  
-            if(val > 0)  
-            {  
+        if(strcmp(tmp_ip, "127.0.0.1") != 0){  
+            if(val > 0){  
                 strcat(ips, delim);  
             }  
             strcat(ips, tmp_ip);  
@@ -271,7 +260,7 @@ char *get_ip()
     return ips;  
 }
 
-void serverAddrPort(char *addr, char *sentence){
+int serverAddrPort(char *addr, char *sentence){
 	srand(time(NULL));
 	int port = rand() % (65535 - 1 + 20000) + 20000;
 	int i, j;
@@ -294,5 +283,59 @@ void serverAddrPort(char *addr, char *sentence){
 			sentence[i] = ',';
 	}
 	
-	return;
+	return port;
+}
+
+int serverSocketInit(int port){
+	int listenfd;
+	struct sockaddr_in addr;
+	if ((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+	printf("SERVER socket() OK\n");
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = port;
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+		printf("Error bind(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+	printf("SERVER bind() OK\n");
+
+	if (listen(listenfd, 10) == -1) {
+		printf("Error listen(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+	printf("SERVER listen() OK\n");
+	return listenfd;
+}
+
+int clientSocketInit(int port, char *ip){
+	int sockfd;
+	struct sockaddr_in addr;
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = port;
+	if (inet_pton(AF_INET, ip, &addr.sin_addr) <= 0) {
+		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+
+	if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}else{
+		printf("connect to client data port successfully\n");
+	}
+	
+	return sockfd;
 }
