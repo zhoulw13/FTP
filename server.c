@@ -15,6 +15,7 @@
 #include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 //client state: 
 //0:user name needed, 1:password needed, 2:user has login
@@ -26,12 +27,15 @@ char clientAddr[100][50];
 int clientPort[100]={0};
 int fileSocket[100]={0};
 int fileConnfd[100]={0};
+char path[100] = "/tmp/";
+int defaultPort = 21;
 void handleClientRequest(int client, char *buf);
 int getAddrPort(char *buf, char *addr);
 char *get_ip();
 int serverAddrPort(char *addr, char *sentence);
 int serverSocketInit(int port);
 int clientSocketInit(int port, const char *addr);
+void *threadDataTransmit(void *t);
 
 int main(int argc, char **argv) {
 	int listenfd, connfd;
@@ -42,7 +46,7 @@ int main(int argc, char **argv) {
 	int fdmax;
 	char pattern[10][10] = {"USER", "PASS", "PORT", "PASV", "RETR", "STOR", "SYST", "TYPE", "QUIT", "ABOR"};
 	
-	listenfd = serverSocketInit(6789);
+	listenfd = serverSocketInit(defaultPort);
 	if (listenfd == -1){
 		return -1;
 	}
@@ -102,6 +106,14 @@ int main(int argc, char **argv) {
 void handleClientRequest(int clientfd, char *sentence){
 	printf("%s\n", sentence);
 	printf("%d\n", clientState[clientfd]);
+	
+	char pass[20] = "\0";
+	strncpy(pass, sentence, 4);
+	
+	if(strcmp(pass, "QUIT") == 0 || strcmp(pass, "ABOR") == 0){
+		send(clientfd, "221 Good bye\r\n", 100, 0);
+		return;
+	}
 	if (clientState[clientfd] == 0){
 		//USER anonymous
 		if (strcmp(sentence, "USER anonymous") == 0){
@@ -113,7 +125,6 @@ void handleClientRequest(int clientfd, char *sentence){
 		return;
 	}else if(clientState[clientfd] == 1){
 		//PASS **@**
-		char pass[20] = "\0";
 		strncpy(pass, sentence, 5);
 		if (strcmp(pass, "PASS ") == 0){
 			send(clientfd, "230-hello word!\r\n230 welcome to zhoulw's ftp server\r\n", 100, 0);
@@ -124,16 +135,11 @@ void handleClientRequest(int clientfd, char *sentence){
 		return;
 	}
 	
-	char pass[20] = "\0";
-	strncpy(pass, sentence, 4);
 	if (strcmp(pass, "SYST") == 0){
 		send(clientfd, "215 UNIX Type: L8\r\n", 100, 0);
 		return;
 	}else if(strcmp(pass, "TYPE") == 0 && strcmp(sentence, "TYPE I") == 0){
 		send(clientfd, "200 Type set to I.\r\n", 100, 0);
-		return;
-	}else if(strcmp(pass, "QUIT") == 0 || strcmp(pass, "ABOR") == 0){
-		send(clientfd, "221 Good bye\r\n", 100, 0);
 		return;
 	}else if(strcmp(pass, "PORT") == 0){
 		clientPort[clientfd] = getAddrPort(sentence, clientAddr[clientfd]);
@@ -163,11 +169,11 @@ void handleClientRequest(int clientfd, char *sentence){
 			return;
 		}
 		char filename[100];
-		strcpy(filename, sentence+5);
+		strcpy(filename, path);
+		strcat(filename, sentence+5);
 		if (clientState[clientfd] == 3){
 			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
-		}
-		else if(clientState[clientfd] == 4){
+		}else if(clientState[clientfd] == 4){
 			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
 		}
 		if (fileConnfd[clientfd] == -1){
@@ -192,7 +198,6 @@ void handleClientRequest(int clientfd, char *sentence){
 			}
 	    }
 	    fclose(fp);
-	    printf("%s\n", text);
 	    send(clientfd, "226 text file loaded\r\n", 100, 0);
 	    
 	    //sending data
@@ -204,7 +209,46 @@ void handleClientRequest(int clientfd, char *sentence){
     	close(fileSocket[clientfd]);
     	fileSocket[clientfd] = 0;
 		return;
+		
 	}else if(strcmp(pass, "STOR") == 0){
+		if(clientState[clientfd] != 3 && clientState[clientfd] !=4){
+			send(clientfd, "425 no TCP connection established\r\n", 100, 0);
+			return;
+		}
+		if (clientState[clientfd] == 3){
+			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
+		}else if(clientState[clientfd] == 4){
+			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
+		}
+		if (fileConnfd[clientfd] == -1){
+			send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
+			return;
+		}
+		send(clientfd, "226 server ready for receiving file\r\n", 100, 0);
+		
+		char filestate[100], pass[20];
+		recv(clientfd, filestate, 100, 0);
+		strncpy(pass, filestate, 3);
+		if (strcmp(pass, "226") == 0){ // client file ok
+			char text[8192] = "\0";
+
+			clientState[clientfd] = 5;
+	    	recv(fileConnfd[clientfd], text, sizeof(text), 0);
+    		clientState[clientfd] = 2;
+    		
+    		char filename[100];
+			strcpy(filename, path);
+			strcat(filename, sentence+5);
+			
+    		FILE *fp = fopen(filename,"w+");
+			fprintf(fp, "%s", text);
+			fclose(fp);
+    		
+    		if (clientState[clientfd] == 4){
+				close(fileSocket[clientfd]);
+				fileSocket[clientfd] = 0;
+			}
+		}
 		return;
 	}
 	send(clientfd, "500 REQUEST not found\r\n", 100, 0);

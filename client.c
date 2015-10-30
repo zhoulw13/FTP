@@ -22,44 +22,11 @@ int main(int argc, char **argv) {
 	char fileAddr[100] = "\0";
 	int filefd;
 	int connfd = 0;
+	char path[] = "test/";
 
-	sockfd = clientSocketInit(6789, "127.0.0.1");
+	sockfd = clientSocketInit(21, "127.0.0.1");
 	if (sockfd == -1){
 		return -1;
-	}
-	
-	//Log In
-	while(1){
-		fgets(sendMsg, 4096, stdin);
-		len = strlen(sendMsg);
-		sendMsg[len-1] = '\0';
-		send(sockfd, sendMsg, len-1, 0);	
-		recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-		char pass[20] = "\0";
-		strncpy(pass, recvMsg, 3);
-		printf("%s\n", recvMsg);
-		memset(sendMsg, 0, sizeof(sendMsg));
-		memset(recvMsg, 0, sizeof(recvMsg));
-		if (strcmp(pass, "331") == 0){
-			break;
-		}
-	}
-	
-	//PASS word
-	while(1){
-		fgets(sendMsg, 4096, stdin);
-		len = strlen(sendMsg);
-		sendMsg[len-1] = '\0';
-		send(sockfd, sendMsg, len-1, 0);	
-		recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-		char pass[20] = "\0";
-		strncpy(pass, recvMsg, 3);
-		printf("%s\n", recvMsg);
-		memset(sendMsg, 0, sizeof(sendMsg));
-		memset(recvMsg, 0, sizeof(recvMsg));
-		if (strcmp(pass, "230") == 0){
-			break;
-		}
 	}
 	
 	//Other request
@@ -70,47 +37,94 @@ int main(int argc, char **argv) {
 		send(sockfd, sendMsg, len-1, 0);
 		char pass[20] = "\0";
 		strncpy(pass, sendMsg, 4);
+		
 		char mask[20] = "\0";
 		recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-		strncpy(mask, recvMsg, 3);
+		strncpy(mask, recvMsg, 3);	
 		
-		if (strcmp(pass, "QUIT") == 0 || strcmp(pass, "ABOR") == 0){
+		if (strcmp(pass, "USER") == 0){
+			if (strcmp(mask, "331") == 0){
+				state = 1;
+			}
+		}else if(strcmp(pass, "PASS") == 0 && state == 1){
+			if (strcmp(mask, "230") == 0){
+				state = 2;
+			}
+		}else if (strcmp(pass, "QUIT") == 0 || strcmp(pass, "ABOR") == 0){
 			if (strcmp(mask, "221") == 0){ //QUIT
 				break;
 			}
-		}else if(strcmp(pass, "PASV") == 0){
-			if (strcmp(mask, "227") == 0){
-				filePort = getAddrPort(recvMsg+4, fileAddr);
-				connfd = clientSocketInit(filePort, fileAddr);
-				state = 4;
-			}
-		}else if(strcmp(pass, "PORT") == 0){
-			if (strcmp(mask, "200") == 0){
-				filePort = getAddrPort(sendMsg+5, fileAddr);
-				filefd = serverSocketInit(filePort);
-				if (filefd != -1){
-					state = 3;
-				}
-			}
-		}else if(strcmp(pass, "RETR") == 0){
-			printf("%s %s\n", mask, recvMsg);
-			if (strcmp(mask, "226") == 0){
-				if(state == 3){
-					connfd = accept(filefd, NULL, NULL);	
-				}else if(state == 4){
-					//connfd = clientSocketInit(filePort, fileAddr);
-				}
-				char text[8192]="\0";
-				recv(connfd, text, sizeof(text), 0);
-				char path[] = "test/";
-				strcat(path, sendMsg+5);
-				FILE *fp = fopen(path,"w+");
-				fprintf(fp, "%s", text);
-				fclose(fp);
-			}
-		}else{
-			
 		}
+		if (state >= 2){ //user logined
+			if(strcmp(pass, "PASV") == 0){
+				if (strcmp(mask, "227") == 0){
+					filePort = getAddrPort(recvMsg+4, fileAddr);
+					connfd = clientSocketInit(filePort, fileAddr);
+					state = 4;
+				}
+			}else if(strcmp(pass, "PORT") == 0){
+				if (strcmp(mask, "200") == 0){
+					filePort = getAddrPort(sendMsg+5, fileAddr);
+					filefd = serverSocketInit(filePort);
+					if (filefd != -1){
+						state = 3;
+					}
+				}
+			}else if(strcmp(pass, "RETR") == 0){
+				//printf("%s %s\n", mask, recvMsg);
+				if (strcmp(mask, "226") == 0){
+					if(state == 3){
+						connfd = accept(filefd, NULL, NULL);	
+					}
+					char text[8192]="\0";
+					recv(connfd, text, sizeof(text), 0);
+					strcat(path, sendMsg+5);
+					FILE *fp = fopen(path,"w+");
+					fprintf(fp, "%s", text);
+					fclose(fp);
+					if(state == 3){
+						close(connfd);
+						connfd = 0;
+					}
+					state = 2;
+				}
+			}else if(strcmp(pass, "STOR") == 0){
+				if (strcmp(mask, "226") == 0){
+					char filename[100];
+					strcpy(filename, sendMsg+5);
+					char buf[1000], text[8192] = "\0";
+					FILE *fp = fopen(filename, "r");
+					if (fp == NULL){
+						send(sockfd, "451 can't open assigned file\r\n", 100, 0);
+					}else{
+						while (!feof(fp)){
+							if(fgets(buf,1000,fp)!=NULL){
+								if(strlen(buf) + strlen(text) <= sizeof(text))
+									strcat(text, buf);
+								else{
+									send(sockfd, "450 out of memory\r\n", 100, 0);
+									fclose(fp);
+									goto CONTINUE;
+								}
+							}
+						}
+						fclose(fp);
+						send(sockfd, "226 already load file\r\n", 100, 0);
+				
+						if (state == 3){
+							connfd = accept(filefd, NULL, NULL);
+						}
+						send(connfd, text, strlen(text), 0);
+						if(state == 3){
+							close(filefd);
+							filefd = 0;
+						}
+						state = 2;
+					}
+				}
+			}
+		}
+CONTINUE:
 		printf("%s\n", recvMsg);
 		memset(sendMsg, 0, sizeof(sendMsg));
 		memset(recvMsg, 0, sizeof(recvMsg));
