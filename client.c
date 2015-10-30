@@ -21,6 +21,7 @@ int main(int argc, char **argv) {
 	int filePort = -1;
 	char fileAddr[100] = "\0";
 	int filefd;
+	int connfd = 0;
 
 	sockfd = clientSocketInit(6789, "127.0.0.1");
 	if (sockfd == -1){
@@ -80,6 +81,7 @@ int main(int argc, char **argv) {
 		}else if(strcmp(pass, "PASV") == 0){
 			if (strcmp(mask, "227") == 0){
 				filePort = getAddrPort(recvMsg+4, fileAddr);
+				connfd = clientSocketInit(filePort, fileAddr);
 				state = 4;
 			}
 		}else if(strcmp(pass, "PORT") == 0){
@@ -91,11 +93,15 @@ int main(int argc, char **argv) {
 				}
 			}
 		}else if(strcmp(pass, "RETR") == 0){
+			printf("%s %s\n", mask, recvMsg);
 			if (strcmp(mask, "226") == 0){
-				int tmp = accept(filefd, NULL, NULL);
+				if(state == 3){
+					connfd = accept(filefd, NULL, NULL);	
+				}else if(state == 4){
+					//connfd = clientSocketInit(filePort, fileAddr);
+				}
 				char text[8192]="\0";
-				while(1)
-					recv(tmp, text, sizeof(text), 0);
+				recv(connfd, text, sizeof(text), 0);
 				char path[] = "test/";
 				strcat(path, sendMsg+5);
 				FILE *fp = fopen(path,"w+");

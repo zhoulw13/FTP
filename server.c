@@ -25,6 +25,7 @@ int clientState[100] = {0};
 char clientAddr[100][50];
 int clientPort[100]={0};
 int fileSocket[100]={0};
+int fileConnfd[100]={0};
 void handleClientRequest(int client, char *buf);
 int getAddrPort(char *buf, char *addr);
 char *get_ip();
@@ -164,28 +165,44 @@ void handleClientRequest(int clientfd, char *sentence){
 		char filename[100];
 		strcpy(filename, sentence+5);
 		if (clientState[clientfd] == 3){
-			fileSocket[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
-			if (fileSocket[clientfd] == -1){
-				send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
-				return;
-			}
-			FILE *fp = fopen(filename, "r");
-			if (fp == NULL){
-				send(clientfd, "451 can't open assigned file\r\n", 100, 0);
-				return;
-			}
-			char buf[1000], text[8192] = "\0";
-			while (!feof(fp)){
-	            if(fgets(buf,100,fp)!=NULL)
-    		        strcat(text, buf);
-    	    }
-    	    fclose(fp);
-    	    send(clientfd, "226 text file loaded\r\n", 100, 0);
-    	    while(1)
-	    	    send(fileSocket[clientfd], text, strlen(text), 0);
-		}else if(clientState[clientfd] == 4){
-			
+			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		}
+		else if(clientState[clientfd] == 4){
+			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
+		}
+		if (fileConnfd[clientfd] == -1){
+			send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
+			return;
+		}
+		FILE *fp = fopen(filename, "r");
+		if (fp == NULL){
+			send(clientfd, "451 can't open assigned file\r\n", 100, 0);
+			return;
+		}
+		char buf[1000], text[8192] = "\0";
+		while (!feof(fp)){
+            if(fgets(buf,1000,fp)!=NULL){
+            	if(strlen(buf) + strlen(text) <= sizeof(text))
+			        strcat(text, buf);
+			    else{
+			    	send(clientfd, "450 out of memory\r\n", 100, 0);
+			    	fclose(fp);
+			    	return;
+			    }
+			}
+	    }
+	    fclose(fp);
+	    printf("%s\n", text);
+	    send(clientfd, "226 text file loaded\r\n", 100, 0);
+	    
+	    //sending data
+	    clientState[clientfd] = 5;
+    	send(fileConnfd[clientfd], text, strlen(text), 0);
+    	clientState[clientfd] = 2;
+    	
+    	//data send ok
+    	close(fileSocket[clientfd]);
+    	fileSocket[clientfd] = 0;
 		return;
 	}else if(strcmp(pass, "STOR") == 0){
 		return;
