@@ -35,7 +35,14 @@ char *get_ip();
 int serverAddrPort(char *addr, char *sentence);
 int serverSocketInit(int port);
 int clientSocketInit(int port, const char *addr);
-void *threadDataTransmit(void *t);
+void *threadRetrieve(void *td);
+void *threadStore(void *td);
+
+typedef struct {
+	FILE *fp;
+	int clientfd;
+	int filefd;
+}transferData;
 
 int main(int argc, char **argv) {
 	int listenfd, connfd;
@@ -44,7 +51,14 @@ int main(int argc, char **argv) {
 	int nbytes;
 	int i, j;
 	int fdmax;
-	char pattern[10][10] = {"USER", "PASS", "PORT", "PASV", "RETR", "STOR", "SYST", "TYPE", "QUIT", "ABOR"};
+	
+	for (i=1; i<argc; i++){
+		if (strcmp(argv[i], "-port") == 0 && i < (argc-1)){
+			defaultPort = atoi(argv[i+1]);
+		}else if(strcmp(argv[i], "-root") == 0 && i < (argc-1)){
+			strcpy(path, argv[i+1]);
+		}
+	}
 	
 	listenfd = serverSocketInit(defaultPort);
 	if (listenfd == -1){
@@ -149,6 +163,7 @@ void handleClientRequest(int clientfd, char *sentence){
 	}else if(strcmp(pass, "PASV") == 0){
 		memset(sentence, 0, sizeof(sentence));
 		int port = serverAddrPort(get_ip(), sentence);
+		printf("%s\n", sentence);
 		if (fileSocket[clientfd] != 0){ // close the old connection
 			close(fileSocket[clientfd]);
 		}
@@ -180,34 +195,25 @@ void handleClientRequest(int clientfd, char *sentence){
 			send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
 			return;
 		}
-		FILE *fp = fopen(filename, "r");
+		FILE *fp = fopen(filename, "rb");
 		if (fp == NULL){
-			send(clientfd, "451 can't open assigned file\r\n", 100, 0);
+			send(clientfd, "550 file dose not exist\r\n", 100, 0);
 			return;
 		}
-		char buf[1000], text[8192] = "\0";
-		while (!feof(fp)){
-            if(fgets(buf,1000,fp)!=NULL){
-            	if(strlen(buf) + strlen(text) <= sizeof(text))
-			        strcat(text, buf);
-			    else{
-			    	send(clientfd, "450 out of memory\r\n", 100, 0);
-			    	fclose(fp);
-			    	return;
-			    }
-			}
-	    }
-	    fclose(fp);
-	    send(clientfd, "226 text file loaded\r\n", 100, 0);
-	    
-	    //sending data
-	    clientState[clientfd] = 5;
-    	send(fileConnfd[clientfd], text, strlen(text), 0);
-    	clientState[clientfd] = 2;
-    	
-    	//data send ok
-    	close(fileSocket[clientfd]);
-    	fileSocket[clientfd] = 0;
+		char msg[] = "150 Opening BINARY mode data connection for ";
+		strcat(msg, filename);
+		strcat(msg, "\r\n");
+		send(clientfd, msg, 100, 0);
+		
+		//sending data
+		clientState[clientfd] = 5;
+		transferData *td = (transferData *)malloc(sizeof(transferData));
+		td->fp = fp;
+		td->clientfd = clientfd;
+		td->filefd = fileConnfd[clientfd];
+		pthread_t id;
+		pthread_create(&id, 0, threadRetrieve, (void *)td);
+		pthread_detach(id);
 		return;
 		
 	}else if(strcmp(pass, "STOR") == 0){
@@ -224,30 +230,26 @@ void handleClientRequest(int clientfd, char *sentence){
 			send(clientfd, "425 can't connect to assigned address\r\n", 100, 0);
 			return;
 		}
-		send(clientfd, "226 server ready for receiving file\r\n", 100, 0);
+		send(clientfd, "300 server ready for receiving file\r\n", 100, 0);
 		
 		char filestate[100], pass[20];
 		recv(clientfd, filestate, 100, 0);
 		strncpy(pass, filestate, 3);
-		if (strcmp(pass, "226") == 0){ // client file ok
-			char text[8192] = "\0";
-
-			clientState[clientfd] = 5;
-	    	recv(fileConnfd[clientfd], text, sizeof(text), 0);
-    		clientState[clientfd] = 2;
-    		
-    		char filename[100];
+		if (strcmp(pass, "150") == 0){ // client file ok
+			//receiving data
+			char filename[100];
 			strcpy(filename, path);
 			strcat(filename, sentence+5);
+			FILE *fp = fopen(filename,"wb+");
 			
-    		FILE *fp = fopen(filename,"w+");
-			fprintf(fp, "%s", text);
-			fclose(fp);
-    		
-    		if (clientState[clientfd] == 4){
-				close(fileSocket[clientfd]);
-				fileSocket[clientfd] = 0;
-			}
+			clientState[clientfd] = 5;
+			transferData *td = (transferData *)malloc(sizeof(transferData));
+			td->fp = fp;
+			td->clientfd = clientfd;
+			td->filefd = fileConnfd[clientfd];
+			pthread_t id;
+			pthread_create(&id, 0, threadStore, (void *)td);
+			pthread_detach(id);
 		}
 		return;
 	}
@@ -410,4 +412,56 @@ int clientSocketInit(int port, const char *ip){
 	}
 	
 	return sockfd;
+}
+
+void *threadRetrieve(void *a){
+	char text[8192] = "\0";
+	transferData *td = (transferData *)a;
+    while(fread(text, sizeof(char), 8192, td->fp) > 0){
+    	if (send(td->filefd, text, sizeof(text), 0) < 0 ) {
+    		printf("failed\n");
+    		break;
+    	}
+    }
+    send(td->filefd, "file end zhoulw copyright", 100, 0);
+    fclose(td->fp);
+    send(td->clientfd, "226 Transfer complete.\r\n", 100, 0);
+    //data send ok
+    clientState[td->clientfd] = 2;
+    if (clientState[td->clientfd] == 4){
+		close(fileSocket[td->clientfd]);
+		fileSocket[td->clientfd] = 0;
+	}
+    pthread_exit(0);
+}
+
+
+void *threadStore(void *a){
+	char text[8192] = "\0";
+	transferData *td = (transferData *)a;
+	int length = 0;
+	
+	while(1){
+		length = recv(td->filefd, text, sizeof(text), 0);
+		if (length <= 0) {
+			printf("recv failed\n");
+			break;
+		}
+		if (strcmp(text, "file end zhoulw copyright") == 0)
+			break;
+		int wl = fwrite(text, sizeof(char), length, td->fp);
+		if (wl < length){
+			printf("write failed\n");
+			break;
+		}
+		memset(text, 0, sizeof(text));
+	}
+	fclose(td->fp);
+	send(td->clientfd, "226 Transfer complete\r\n", 100, 0);
+	clientState[td->clientfd] = 2;
+	if (clientState[td->clientfd] == 4){
+		close(fileSocket[td->clientfd]);
+		fileSocket[td->clientfd] = 0;
+	}
+	pthread_exit(0);
 }

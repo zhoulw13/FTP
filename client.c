@@ -22,7 +22,6 @@ int main(int argc, char **argv) {
 	char fileAddr[100] = "\0";
 	int filefd;
 	int connfd = 0;
-	char path[] = "test/";
 
 	sockfd = clientSocketInit(21, "127.0.0.1");
 	if (sockfd == -1){
@@ -34,12 +33,15 @@ int main(int argc, char **argv) {
 		fgets(sendMsg, 4096, stdin);
 		len = strlen(sendMsg);
 		sendMsg[len-1] = '\0';
+		if (strcmp(sendMsg, "\0") == 0)
+			continue;
 		send(sockfd, sendMsg, len-1, 0);
 		char pass[20] = "\0";
 		strncpy(pass, sendMsg, 4);
 		
 		char mask[20] = "\0";
 		recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+		printf("%s\n", recvMsg);
 		strncpy(mask, recvMsg, 3);	
 		
 		if (strcmp(pass, "USER") == 0){
@@ -71,50 +73,60 @@ int main(int argc, char **argv) {
 					}
 				}
 			}else if(strcmp(pass, "RETR") == 0){
-				//printf("%s %s\n", mask, recvMsg);
-				if (strcmp(mask, "226") == 0){
+				if (strcmp(mask, "150") == 0){
 					if(state == 3){
 						connfd = accept(filefd, NULL, NULL);	
 					}
 					char text[8192]="\0";
-					recv(connfd, text, sizeof(text), 0);
-					strcat(path, sendMsg+5);
-					FILE *fp = fopen(path,"w+");
-					fprintf(fp, "%s", text);
+					FILE *fp = fopen(sendMsg+5,"wb+");
+					int length = 0;
+					while(1){
+						length = recv(connfd, text, sizeof(text), 0);
+						if (strcmp(text, "file end zhoulw copyright") == 0)
+							break;
+						fwrite(text, sizeof(char), length, fp);
+					}
 					fclose(fp);
+					memset(recvMsg, 0, sizeof(recvMsg));
+					recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+					printf("%s\n", recvMsg);
 					if(state == 3){
-						close(connfd);
+						close(filefd);
 						connfd = 0;
 					}
 					state = 2;
 				}
 			}else if(strcmp(pass, "STOR") == 0){
-				if (strcmp(mask, "226") == 0){
+				if (strcmp(mask, "300") == 0){
 					char filename[100];
 					strcpy(filename, sendMsg+5);
 					char buf[1000], text[8192] = "\0";
-					FILE *fp = fopen(filename, "r");
+					FILE *fp = fopen(filename, "rb");
 					if (fp == NULL){
-						send(sockfd, "451 can't open assigned file\r\n", 100, 0);
+						send(sockfd, "550 file dose not exist\r\n", 100, 0);
 					}else{
-						while (!feof(fp)){
-							if(fgets(buf,1000,fp)!=NULL){
-								if(strlen(buf) + strlen(text) <= sizeof(text))
-									strcat(text, buf);
-								else{
-									send(sockfd, "450 out of memory\r\n", 100, 0);
-									fclose(fp);
-									goto CONTINUE;
-								}
-							}
-						}
-						fclose(fp);
-						send(sockfd, "226 already load file\r\n", 100, 0);
-				
 						if (state == 3){
 							connfd = accept(filefd, NULL, NULL);
 						}
-						send(connfd, text, strlen(text), 0);
+						char msg[] = "150 Opening BINARY mode data connection for ";
+						strcat(msg, filename);
+						strcat(msg, "\r\n");
+						send(sockfd, msg, 100, 0);
+						
+						while(fread(text, sizeof(char), 8192, fp) > 0){
+							if (send(connfd, text, sizeof(text), 0) < 0 ) {
+								printf("failed\n");
+								break;
+							}
+							memset(text, 0, sizeof(text));
+						}
+						send(connfd, "file end zhoulw copyright", 100, 0);
+						fclose(fp);
+						
+						memset(recvMsg, 0, sizeof(recvMsg));
+						recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+						printf("%s\n", recvMsg);
+						
 						if(state == 3){
 							close(filefd);
 							filefd = 0;
@@ -124,8 +136,6 @@ int main(int argc, char **argv) {
 				}
 			}
 		}
-CONTINUE:
-		printf("%s\n", recvMsg);
 		memset(sendMsg, 0, sizeof(sendMsg));
 		memset(recvMsg, 0, sizeof(recvMsg));
 	}
