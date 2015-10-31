@@ -417,12 +417,16 @@ int clientSocketInit(int port, const char *ip){
 void *threadRetrieve(void *a){
 	char text[8192] = "\0";
 	transferData *td = (transferData *)a;
+	char strlength[10];
     while(fread(text, sizeof(char), 8192, td->fp) > 0){
+    	sprintf(strlength, "%d", (int)(strlen(text) > 8192 ? 8192:strlen(text)));
+    	send(td->filefd, strlength, 10, 0);
     	if (send(td->filefd, text, sizeof(text), 0) < 0 ) {
     		printf("failed\n");
     		break;
     	}
     }
+    send(td->filefd, "100", 10, 0);
     send(td->filefd, "file end zhoulw copyright", 100, 0);
     fclose(td->fp);
     send(td->clientfd, "226 Transfer complete.\r\n", 100, 0);
@@ -439,21 +443,27 @@ void *threadRetrieve(void *a){
 void *threadStore(void *a){
 	char text[8192] = "\0";
 	transferData *td = (transferData *)a;
-	int length = 0;
-	
+	int length = 0, l;
+	char strlength[10];
 	while(1){
+		recv(td->filefd, strlength, sizeof(strlength), 0);
+		l = atoi(strlength);
 		length = recv(td->filefd, text, sizeof(text), 0);
 		if (length <= 0) {
 			printf("recv failed\n");
 			break;
 		}
+		//printf("length: %d\n", l);
 		if (strcmp(text, "file end zhoulw copyright") == 0)
 			break;
-		int wl = fwrite(text, sizeof(char), length, td->fp);
-		if (wl < length){
+		char *tmp = (char *)malloc(sizeof(char)*l);
+		strncpy(tmp, text, l);
+		int wl;
+		wl = fwrite(tmp, sizeof(char), l, td->fp);
+		/*if (wl < length){
 			printf("write failed\n");
 			break;
-		}
+		}*/
 		memset(text, 0, sizeof(text));
 	}
 	fclose(td->fp);

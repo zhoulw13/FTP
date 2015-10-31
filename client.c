@@ -7,6 +7,7 @@
 #include <string.h>
 #include <memory.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 int getAddrPort(char *sentence, char *addr);
 int serverSocketInit(int port);
@@ -79,12 +80,19 @@ int main(int argc, char **argv) {
 					}
 					char text[8192]="\0";
 					FILE *fp = fopen(sendMsg+5,"wb+");
-					int length = 0;
+					int length = 0, l;
+					char strlength[10];
 					while(1){
+						recv(connfd, strlength, sizeof(strlength), 0);
+						l = atoi(strlength);
 						length = recv(connfd, text, sizeof(text), 0);
 						if (strcmp(text, "file end zhoulw copyright") == 0)
 							break;
-						fwrite(text, sizeof(char), length, fp);
+						char *tmp = (char *)malloc(sizeof(char)*l);
+						strncpy(tmp, text, l);
+						int wl;
+						wl = fwrite(tmp, sizeof(char), l, fp);
+						//fwrite(text, sizeof(char), length, fp);
 					}
 					fclose(fp);
 					memset(recvMsg, 0, sizeof(recvMsg));
@@ -113,13 +121,19 @@ int main(int argc, char **argv) {
 						strcat(msg, "\r\n");
 						send(sockfd, msg, 100, 0);
 						
-						while(fread(text, sizeof(char), 8192, fp) > 0){
+						int length = 0;
+						char strlength[10];
+						while(length = fread(text, sizeof(char), 8192, fp) > 0){
+							sprintf(strlength, "%d", (int)(strlen(text) > 8192 ? 8192:strlen(text)));
+							//printf("length: %s\n", strlength);
+							send(connfd, strlength, 10, 0);
 							if (send(connfd, text, sizeof(text), 0) < 0 ) {
 								printf("failed\n");
 								break;
 							}
 							memset(text, 0, sizeof(text));
 						}
+						send(connfd, "100", 10, 0);
 						send(connfd, "file end zhoulw copyright", 100, 0);
 						fclose(fp);
 						
