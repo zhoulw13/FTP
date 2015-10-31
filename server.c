@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <dirent.h>
 
 //client state: 
 //0:user name needed, 1:password needed, 2:user has login
@@ -178,6 +179,28 @@ void handleClientRequest(int clientfd, char *sentence){
 			send(clientfd, temp, strlen(temp), 0);
 		}
 		return;
+	}else if(strcmp(pass, "LIST") == 0){
+		DIR *dir;
+	    struct dirent *ptr;
+    	dir = opendir(path);
+    	char text[8192]="\0";
+    	while((ptr = readdir(dir)) != NULL){
+    		if(ptr->d_name[0] == '.')
+    			continue;
+    		if (ptr-> d_type & DT_DIR){
+	    		strcat(text, "dir ");
+	    		strcat(text, ptr-> d_name);
+	    		strcat(text, "/");
+    		}else if(ptr-> d_type & DT_REG){
+    			strcat(text, "file ");
+    			strcat(text, ptr-> d_name);
+    		}
+    		
+    		strcat(text, "\r\n");
+    	}
+    	send(clientfd, text, 8192, 0);
+    	closedir(dir);
+    	return;
 	}else if(strcmp(pass, "RETR") == 0){
 		if(clientState[clientfd] != 3 && clientState[clientfd] !=4){
 			send(clientfd, "425 no TCP connection established\r\n", 100, 0);

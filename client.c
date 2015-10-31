@@ -112,6 +112,7 @@ int main(int argc, char **argv) {
 					FILE *fp = fopen(filename, "rb");
 					if (fp == NULL){
 						send(sockfd, "550 file dose not exist\r\n", 100, 0);
+						printf("550 file dose not exist\r\n");
 					}else{
 						if (state == 3){
 							connfd = accept(filefd, NULL, NULL);
@@ -148,6 +149,8 @@ int main(int argc, char **argv) {
 						state = 2;
 					}
 				}
+			}else if(strcmp(pass, "LIST") == 0){
+				// just print
 			}
 		}
 		memset(sendMsg, 0, sizeof(sendMsg));
