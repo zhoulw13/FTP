@@ -441,8 +441,9 @@ void *threadRetrieve(void *a){
 	char text[8192] = "\0";
 	transferData *td = (transferData *)a;
 	char strlength[10];
-    while(fread(text, sizeof(char), 8192, td->fp) > 0){
-    	sprintf(strlength, "%d", (int)(strlen(text) > 8192 ? 8192:strlen(text)));
+	int length = 0;
+    while((length = fread(text, sizeof(char), 8192, td->fp)) > 0){
+    	sprintf(strlength, "%d", length);
     	send(td->filefd, strlength, 10, 0);
     	if (send(td->filefd, text, sizeof(text), 0) < 0 ) {
     		printf("failed\n");
@@ -479,10 +480,8 @@ void *threadStore(void *a){
 		//printf("length: %d\n", l);
 		if (strcmp(text, "file end zhoulw copyright") == 0)
 			break;
-		char *tmp = (char *)malloc(sizeof(char)*l);
-		strncpy(tmp, text, l);
 		int wl;
-		wl = fwrite(tmp, sizeof(char), l, td->fp);
+		wl = fwrite(text, sizeof(char), l, td->fp);
 		/*if (wl < length){
 			printf("write failed\n");
 			break;

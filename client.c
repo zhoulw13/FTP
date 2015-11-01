@@ -88,10 +88,8 @@ int main(int argc, char **argv) {
 						length = recv(connfd, text, sizeof(text), 0);
 						if (strcmp(text, "file end zhoulw copyright") == 0)
 							break;
-						char *tmp = (char *)malloc(sizeof(char)*l);
-						strncpy(tmp, text, l);
 						int wl;
-						wl = fwrite(tmp, sizeof(char), l, fp);
+						wl = fwrite(text, sizeof(char), l, fp);
 						//fwrite(text, sizeof(char), length, fp);
 					}
 					fclose(fp);
@@ -124,8 +122,8 @@ int main(int argc, char **argv) {
 						
 						int length = 0;
 						char strlength[10];
-						while(length = fread(text, sizeof(char), 8192, fp) > 0){
-							sprintf(strlength, "%d", (int)(strlen(text) > 8192 ? 8192:strlen(text)));
+						while((length = fread(text, sizeof(char), 8192, fp)) > 0){
+							sprintf(strlength, "%d", length);
 							//printf("length: %s\n", strlength);
 							send(connfd, strlength, 10, 0);
 							if (send(connfd, text, sizeof(text), 0) < 0 ) {
