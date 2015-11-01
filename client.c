@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 
 #include <unistd.h>
@@ -29,21 +30,28 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 	
-	//Other request
+	//greeting
+	recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+	printf("%s\n", recvMsg);
+	memset(recvMsg, 0, sizeof(recvMsg));
+	
 	while(1){
 		fgets(sendMsg, 4096, stdin);
 		len = strlen(sendMsg);
 		sendMsg[len-1] = '\0';
 		if (strcmp(sendMsg, "\0") == 0)
 			continue;
-		send(sockfd, sendMsg, len-1, 0);
+		
 		char pass[20] = "\0";
 		strncpy(pass, sendMsg, 4);
-		
 		char mask[20] = "\0";
-		recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-		printf("%s\n", recvMsg);
-		strncpy(mask, recvMsg, 3);	
+		
+		if (strcmp(pass, "STOR") != 0){
+			send(sockfd, sendMsg, len-1, 0);
+			recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+			printf("%s\n", recvMsg);
+			strncpy(mask, recvMsg, 3);	
+		}
 		
 		if (strcmp(pass, "USER") == 0){
 			if (strcmp(mask, "331") == 0){
@@ -80,70 +88,69 @@ int main(int argc, char **argv) {
 					}
 					char text[8192]="\0";
 					FILE *fp = fopen(sendMsg+5,"wb+");
-					int length = 0, l;
+					int length = 0;
 					char strlength[10];
 					while(1){
-						recv(connfd, strlength, sizeof(strlength), 0);
-						l = atoi(strlength);
 						length = recv(connfd, text, sizeof(text), 0);
-						if (strcmp(text, "file end zhoulw copyright") == 0)
+						
+						if(length == 0){
 							break;
-						int wl;
-						wl = fwrite(text, sizeof(char), l, fp);
+						}
+						fwrite(text, sizeof(char), length, fp);
 						//fwrite(text, sizeof(char), length, fp);
 					}
 					fclose(fp);
-					memset(recvMsg, 0, sizeof(recvMsg));
-					recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-					printf("%s\n", recvMsg);
+					
+					close(connfd);
 					if(state == 3){
 						close(filefd);
 						connfd = 0;
 					}
+					
+					memset(recvMsg, 0, sizeof(recvMsg));
+					recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+					printf("%s\n", recvMsg);
+					
 					state = 2;
 				}
 			}else if(strcmp(pass, "STOR") == 0){
-				if (strcmp(mask, "300") == 0){
-					char filename[100];
-					strcpy(filename, sendMsg+5);
-					char buf[1000], text[8192] = "\0";
-					FILE *fp = fopen(filename, "rb");
-					if (fp == NULL){
-						send(sockfd, "550 file dose not exist\r\n", 100, 0);
-						printf("550 file dose not exist\r\n");
-					}else{
+				char filename[100];
+				strcpy(filename, sendMsg+5);
+				char text[8192] = "\0";
+				FILE *fp = fopen(filename, "rb");
+				if (fp == NULL){
+					printf("550 file dose not exist\r\n");
+				}else{
+					send(sockfd, sendMsg, len-1, 0);
+					recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+					printf("%s\n", recvMsg);
+					strncpy(mask, recvMsg, 3);
+					if (strcmp(mask, "150") == 0){
 						if (state == 3){
 							connfd = accept(filefd, NULL, NULL);
 						}
-						char msg[] = "150 Opening BINARY mode data connection for ";
-						strcat(msg, filename);
-						strcat(msg, "\r\n");
-						send(sockfd, msg, 100, 0);
-						
 						int length = 0;
 						char strlength[10];
-						while((length = fread(text, sizeof(char), 8192, fp)) > 0){
-							sprintf(strlength, "%d", length);
-							//printf("length: %s\n", strlength);
-							send(connfd, strlength, 10, 0);
-							if (send(connfd, text, sizeof(text), 0) < 0 ) {
+						while(!feof(fp)){
+							length = fread(text, sizeof(char), sizeof(text), fp);
+							if (send(connfd, text, length, 0) < 0 ) {
 								printf("failed\n");
 								break;
 							}
 							memset(text, 0, sizeof(text));
 						}
-						send(connfd, "100", 10, 0);
-						send(connfd, "file end zhoulw copyright", 100, 0);
 						fclose(fp);
-						
-						memset(recvMsg, 0, sizeof(recvMsg));
-						recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-						printf("%s\n", recvMsg);
-						
+						close(connfd);
+						connfd = 0;
 						if(state == 3){
 							close(filefd);
 							filefd = 0;
 						}
+					
+						memset(recvMsg, 0, sizeof(recvMsg));
+						recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+						printf("%s\n", recvMsg);
+										
 						state = 2;
 					}
 				}
@@ -193,7 +200,7 @@ int clientSocketInit(int port, const char *ip){
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_port = port;
+	addr.sin_port = htons(port);
 	if (inet_pton(AF_INET, ip, &addr.sin_addr) < 0) {
 		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
 		return -1;
@@ -203,7 +210,7 @@ int clientSocketInit(int port, const char *ip){
 		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}else{
-		printf("connect to server successfully\n");
+		//printf("connect to server successfully\n");
 	}
 	
 	return sockfd;
@@ -220,7 +227,7 @@ int serverSocketInit(int port){
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_port = port;
+	addr.sin_port = htons(port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
