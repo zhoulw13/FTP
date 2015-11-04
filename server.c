@@ -186,9 +186,7 @@ void handleClientRequest(int clientfd, char *sentence){
 		char sendMsg[] = "200 port received\r\n";
 		send(clientfd, sendMsg, strlen(sendMsg), 0);
 		clientPort[clientfd] = getAddrPort(sentence, clientAddr[clientfd]);
-		fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		clientState[clientfd] = 3;
-		printf("port is good %d\n", fileConnfd[clientfd]);
 		return;
 	}else if(strcmp(pass, "PASV") == 0){
 		memset(sentence, 0, sizeof(char)*strlen(sentence));
@@ -238,7 +236,7 @@ void handleClientRequest(int clientfd, char *sentence){
 			return;
 		}
 		if (clientState[clientfd] == 3){
-			//fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
+			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		}else if(clientState[clientfd] == 4){
 			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
 		}
@@ -252,7 +250,6 @@ void handleClientRequest(int clientfd, char *sentence){
 		strcpy(filename, path);
 		strcat(filename, "/");
 		strcat(filename, sentence+5);
-		printf("%s\n", filename);
 		FILE *fp = fopen(filename, "rb");
 		if (fp == NULL){
 			char sendMsg[] = "550 file dose not exist\r\n";
@@ -276,19 +273,16 @@ void handleClientRequest(int clientfd, char *sentence){
 		return;
 		
 	}else if(strcmp(pass, "STOR") == 0){
-		printf("1\n");
 		if(clientState[clientfd] != 3 && clientState[clientfd] !=4){
 			char sendMsg[] = "425 no TCP connection established\r\n";
 			send(clientfd, sendMsg, strlen(sendMsg), 0);
 			return;
 		}
-		printf("2\n");
 		if (clientState[clientfd] == 3){
-			//fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
+			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		}else if(clientState[clientfd] == 4){
 			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
 		}
-		printf("3\n");
 		if (fileConnfd[clientfd] == -1){
 			char sendMsg[] = "425 can't connect to assigned address\r\n";
 			send(clientfd, sendMsg, strlen(sendMsg), 0);
@@ -297,7 +291,6 @@ void handleClientRequest(int clientfd, char *sentence){
 		char sendMsg[] = "150 server ready for receiving file\r\n";
 		send(clientfd, sendMsg, strlen(sendMsg), 0);
 		
-		printf("4\n");
 		//receiving data
 		char filename[100];
 		strcpy(filename, path);

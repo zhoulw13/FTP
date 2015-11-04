@@ -84,9 +84,7 @@ int main(int argc, char **argv) {
 					sendMsg[len-2] = '\0';
 					filePort = getAddrPort(sendMsg+5, fileAddr);
 					filefd = serverSocketInit(filePort);
-					printf("1\n");
 					//connfd = accept(filefd, NULL, NULL);
-					printf("2\n");
 					if (filefd != -1){
 						state = 3;
 					}
@@ -137,15 +135,12 @@ int main(int argc, char **argv) {
 				if (fp == NULL){
 					printf("550 file dose not exist\r\n");
 				}else{
+					send(sockfd, sendMsg, len+1, 0);
+					recv(sockfd, recvMsg, sizeof(recvMsg), 0);
+					printf("%s\n", recvMsg);
 					if (state == 3){
 						connfd = accept(filefd, NULL, NULL);
 					}
-					printf("begin\n");
-					send(sockfd, sendMsg, len+1, 0);
-					printf("send msg\n");
-					recv(sockfd, recvMsg, sizeof(recvMsg), 0);
-					printf("receive msg\n");
-					printf("%s\n", recvMsg);
 					strncpy(mask, recvMsg, 3);
 					if (strcmp(mask, "150") == 0){
 						int length = 0;
@@ -253,7 +248,7 @@ int clientSocketInit(int port, const char *ip){
 		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}else{
-		//printf("connect to server successfully\n");
+		printf("connect to server successfully\n");
 	}
 	return sockfd;
 }
