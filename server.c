@@ -159,7 +159,6 @@ void handleClientRequest(int clientfd, char *sentence){
 			char sendMsg[] = "503 user name wrong\r\n";
 			send(clientfd, sendMsg, strlen(sendMsg), 0);
 		}
-		//send(clientfd, "sb\r\n", 100, 0);
 		return;
 	}else if(clientState[clientfd] == 1){
 		//PASS **@**
@@ -184,10 +183,12 @@ void handleClientRequest(int clientfd, char *sentence){
 		send(clientfd, sendMsg, strlen(sendMsg), 0);
 		return;
 	}else if(strcmp(pass, "PORT") == 0){
-		clientPort[clientfd] = getAddrPort(sentence, clientAddr[clientfd]);
 		char sendMsg[] = "200 port received\r\n";
 		send(clientfd, sendMsg, strlen(sendMsg), 0);
+		clientPort[clientfd] = getAddrPort(sentence, clientAddr[clientfd]);
+		fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		clientState[clientfd] = 3;
+		printf("port is good %d\n", fileConnfd[clientfd]);
 		return;
 	}else if(strcmp(pass, "PASV") == 0){
 		memset(sentence, 0, sizeof(char)*strlen(sentence));
@@ -201,8 +202,8 @@ void handleClientRequest(int clientfd, char *sentence){
 			char sendMsg[] = "400 PASV error\r\n";
 			send(clientfd, sendMsg, strlen(sendMsg), 0);
 		}else{
-			strcat(sentence, "\r\n");
-			char temp[10000] = "227 ";
+			strcat(sentence, ")\r\n");
+			char temp[10000] = "227 Entering Passive Mode (";
 			strcat(temp, sentence);
 			clientState[clientfd] = 4;
 			send(clientfd, temp, strlen(temp), 0);
@@ -237,7 +238,7 @@ void handleClientRequest(int clientfd, char *sentence){
 			return;
 		}
 		if (clientState[clientfd] == 3){
-			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
+			//fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		}else if(clientState[clientfd] == 4){
 			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
 		}
@@ -275,16 +276,19 @@ void handleClientRequest(int clientfd, char *sentence){
 		return;
 		
 	}else if(strcmp(pass, "STOR") == 0){
+		printf("1\n");
 		if(clientState[clientfd] != 3 && clientState[clientfd] !=4){
 			char sendMsg[] = "425 no TCP connection established\r\n";
 			send(clientfd, sendMsg, strlen(sendMsg), 0);
 			return;
 		}
+		printf("2\n");
 		if (clientState[clientfd] == 3){
-			fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
+			//fileConnfd[clientfd] = clientSocketInit(clientPort[clientfd], clientAddr[clientfd]);
 		}else if(clientState[clientfd] == 4){
 			fileConnfd[clientfd] = accept(fileSocket[clientfd], NULL, NULL);
 		}
+		printf("3\n");
 		if (fileConnfd[clientfd] == -1){
 			char sendMsg[] = "425 can't connect to assigned address\r\n";
 			send(clientfd, sendMsg, strlen(sendMsg), 0);
@@ -293,6 +297,7 @@ void handleClientRequest(int clientfd, char *sentence){
 		char sendMsg[] = "150 server ready for receiving file\r\n";
 		send(clientfd, sendMsg, strlen(sendMsg), 0);
 		
+		printf("4\n");
 		//receiving data
 		char filename[100];
 		strcpy(filename, path);
@@ -422,10 +427,10 @@ int serverSocketInit(int port){
 	int listenfd;
 	struct sockaddr_in addr;
 	if ((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
-		//printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
-	//printf("SERVER socket() OK\n");
+	printf("SERVER socket() OK\n");
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
@@ -433,16 +438,16 @@ int serverSocketInit(int port){
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(listenfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		//printf("Error bind(): %s(%d)\n", strerror(errno), errno);
+		printf("Error bind(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
-	//printf("SERVER bind() OK\n");
+	printf("SERVER bind() OK\n");
 
 	if (listen(listenfd, 10) == -1) {
-		//printf("Error listen(): %s(%d)\n", strerror(errno), errno);
+		printf("Error listen(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
-	//printf("SERVER listen() OK\n");
+	printf("SERVER listen() OK\n");
 	return listenfd;
 }
 
@@ -450,7 +455,7 @@ int clientSocketInit(int port, const char *ip){
 	int sockfd;
 	struct sockaddr_in addr;
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
-		//printf("Error socket(): %s(%d)\n", strerror(errno), errno);
+		printf("Error socket(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
 
@@ -458,15 +463,15 @@ int clientSocketInit(int port, const char *ip){
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
 	if (inet_pton(AF_INET, ip, &addr.sin_addr) < 0) {
-		//printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
+		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}
 
 	if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-		//printf("Error connect(): %s(%d)\n", strerror(errno), errno);
+		printf("Error connect(): %s(%d)\n", strerror(errno), errno);
 		return -1;
 	}else{
-		//printf("connect to client data port successfully\n");
+		printf("connect to client data port successfully\n");
 	}
 	
 	return sockfd;
